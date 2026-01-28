@@ -16,7 +16,7 @@ from typing import Optional, Dict, Any, List
 import tkinter as tk
 from tkinter import ttk
 import pystray
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageTk
 from pystray import MenuItem as item
 import math
 import webbrowser
@@ -329,20 +329,56 @@ def create_claude_icon(size: int = 64, usage_pct: float = 0) -> Image.Image:
 
 def create_window_icon() -> str:
     """Create an ICO file for the window icon and return the path."""
-    icon_img = create_claude_icon(64, 0.3)
+    # Create icon at larger size for better quality
+    icon_img = create_claude_icon(256, 0.3)
 
-    # Create multiple sizes for ICO
-    sizes = [(16, 16), (32, 32), (48, 48), (64, 64)]
+    # Create multiple sizes for ICO (Windows needs these specific sizes)
+    sizes = [16, 24, 32, 48, 64, 128, 256]
     icons = []
     for size in sizes:
-        resized = icon_img.resize(size, Image.Resampling.LANCZOS)
+        resized = icon_img.resize((size, size), Image.Resampling.LANCZOS)
         icons.append(resized)
 
-    # Save to temp file
-    ico_path = os.path.join(tempfile.gettempdir(), "claude_usage_icon.ico")
-    icons[0].save(ico_path, format='ICO', sizes=[(s, s) for s, _ in sizes], append_images=icons[1:])
+    # Save to project directory (persistent)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    ico_path = os.path.join(script_dir, "icon.ico")
+    icons[-1].save(
+        ico_path,
+        format='ICO',
+        sizes=[(s, s) for s in sizes],
+        append_images=icons[:-1]
+    )
 
     return ico_path
+
+
+def set_window_icon_windows(window, ico_path):
+    """Set window icon using Windows API for proper taskbar icon."""
+    try:
+        from ctypes import windll, c_void_p, c_int, sizeof
+
+        # Get window handle
+        hwnd = windll.user32.GetParent(window.winfo_id())
+
+        # Load icon from file
+        # IMAGE_ICON = 1, LR_LOADFROMFILE = 0x0010, LR_DEFAULTSIZE = 0x0040
+        icon_large = windll.user32.LoadImageW(
+            0, ico_path, 1, 48, 48, 0x0010
+        )
+        icon_small = windll.user32.LoadImageW(
+            0, ico_path, 1, 16, 16, 0x0010
+        )
+
+        # WM_SETICON = 0x0080, ICON_BIG = 1, ICON_SMALL = 0
+        if icon_large:
+            windll.user32.SendMessageW(hwnd, 0x0080, 1, icon_large)
+        if icon_small:
+            windll.user32.SendMessageW(hwnd, 0x0080, 0, icon_small)
+
+        return True
+    except Exception as e:
+        print(f"Failed to set icon via Windows API: {e}")
+        return False
 
 
 # Global icon path (created once)
@@ -623,9 +659,25 @@ class SystemTrayApp:
 
     def show_widget(self):
         """Show the usage widget."""
+        global WINDOW_ICON_PATH
+
         if self.widget is None or not self.widget.winfo_exists():
             self.widget = GlassWidget(self.usage_data)
             self.widget.protocol("WM_DELETE_WINDOW", self.hide_widget)
+            # Set icon for taskbar using multiple methods
+            try:
+                # Method 1: wm_iconphoto (works best for taskbar)
+                icon_img = create_claude_icon(64, 0.3)
+                self.icon_photo = ImageTk.PhotoImage(icon_img)
+                self.widget.wm_iconphoto(True, self.icon_photo)
+            except Exception as e:
+                print(f"iconphoto failed: {e}")
+            try:
+                # Method 2: iconbitmap as fallback
+                if WINDOW_ICON_PATH:
+                    self.widget.iconbitmap(WINDOW_ICON_PATH)
+            except Exception:
+                pass
             self.update_widget()
         else:
             self.widget.deiconify()
@@ -668,7 +720,27 @@ class SystemTrayApp:
 
     def run(self):
         """Start the application."""
+        global WINDOW_ICON_PATH
+
+        # Create icon file first
+        if WINDOW_ICON_PATH is None:
+            WINDOW_ICON_PATH = create_window_icon()
+
         self.root = tk.Tk()
+
+        # Set icon on root window BEFORE withdraw
+        try:
+            icon_img = create_claude_icon(64, 0.3)
+            self.root_icon = ImageTk.PhotoImage(icon_img)
+            self.root.wm_iconphoto(True, self.root_icon)
+        except Exception as e:
+            print(f"Root icon failed: {e}")
+        try:
+            if WINDOW_ICON_PATH:
+                self.root.iconbitmap(WINDOW_ICON_PATH)
+        except Exception:
+            pass
+
         self.root.withdraw()
 
         # Initial data load
@@ -708,6 +780,15 @@ class SystemTrayApp:
 
 def main():
     """Entry point."""
+    # Set AppUserModelID so Windows treats this as a separate app (not Python)
+    # This allows the taskbar to show our custom icon
+    try:
+        import ctypes
+        app_id = "kreativoldal.claude.usagemonitor.1.0"
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+    except Exception:
+        pass
+
     app = SystemTrayApp()
     app.run()
 
