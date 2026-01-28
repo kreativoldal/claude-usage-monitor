@@ -20,6 +20,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageFilter
 from pystray import MenuItem as item
 import math
 import webbrowser
+import tempfile
 
 # Windows transparency support
 try:
@@ -326,6 +327,28 @@ def create_claude_icon(size: int = 64, usage_pct: float = 0) -> Image.Image:
     return img
 
 
+def create_window_icon() -> str:
+    """Create an ICO file for the window icon and return the path."""
+    icon_img = create_claude_icon(64, 0.3)
+
+    # Create multiple sizes for ICO
+    sizes = [(16, 16), (32, 32), (48, 48), (64, 64)]
+    icons = []
+    for size in sizes:
+        resized = icon_img.resize(size, Image.Resampling.LANCZOS)
+        icons.append(resized)
+
+    # Save to temp file
+    ico_path = os.path.join(tempfile.gettempdir(), "claude_usage_icon.ico")
+    icons[0].save(ico_path, format='ICO', sizes=[(s, s) for s, _ in sizes], append_images=icons[1:])
+
+    return ico_path
+
+
+# Global icon path (created once)
+WINDOW_ICON_PATH = None
+
+
 class GlassWidget(tk.Toplevel):
     """Elegant glass-effect floating widget."""
 
@@ -338,11 +361,21 @@ class GlassWidget(tk.Toplevel):
 
     def setup_window(self):
         """Configure the floating window with glass effect."""
+        global WINDOW_ICON_PATH
+
         self.title("Claude Usage")
         self.geometry("320x320")  # Increased height for button
         self.resizable(False, False)
         self.attributes('-topmost', True)
         self.attributes('-alpha', 0.95)
+
+        # Set custom window icon
+        try:
+            if WINDOW_ICON_PATH is None:
+                WINDOW_ICON_PATH = create_window_icon()
+            self.iconbitmap(WINDOW_ICON_PATH)
+        except Exception:
+            pass  # Fallback to default if icon creation fails
 
         # Colors for glass theme
         self.bg_color = "#1A1915"
