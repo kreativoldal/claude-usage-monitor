@@ -1,24 +1,19 @@
-# Claude Usage Monitor
+# Claude Session Monitor
 
-A Windows system tray application that monitors your Claude Code and Claude Desktop usage in real-time.
+A lightweight Windows system tray application that monitors your current Claude Code session token usage in real-time.
 
-![Claude Usage Monitor](screenshot.png)
+![Claude Session Monitor](screenshot.png)
 
 ## Features
 
-- **System tray icon** with dynamic usage indicator (changes color based on usage level)
+- **System tray icon** with dynamic color indicator based on session usage
 - **Elegant glass-effect widget** with Claude's brand colors
-- **Tracks multiple sources:**
-  - Claude Code CLI sessions
-  - Claude Desktop app (local data)
-- **Visual indicators:**
-  - Session usage (current Claude Code session)
-  - Weekly Code usage
-  - Total weekly usage (Code + Desktop)
-- **Color-coded warnings:**
-  - Orange (normal) → Amber (75%) → Orange-Red (90%) → Red (critical)
+- **Session token counter** - tracks tokens used in your current Claude Code session
+- **Color-coded progress bar:**
+  - Green (< 30%) → Lime (30-50%) → Yellow (50-70%) → Orange (70-85%) → Red (> 85%)
 - **Quick access button** to open claude.ai usage page
 - **Auto-refresh** every 30 seconds
+- Compact, minimal design
 
 ## Installation
 
@@ -50,23 +45,11 @@ Download the latest `ClaudeUsageMonitor.exe` from the [Releases](../../releases)
 
 Run `add_to_startup.bat` to add the monitor to Windows startup.
 
-## Configuration
-
-Edit the following values in `claude_usage_monitor.py` to customize:
-
-```python
-REFRESH_INTERVAL = 30  # seconds between updates
-session_limit = 1_000_000  # session token limit estimate
-weekly_limit = 10_000_000  # weekly token limit estimate
-```
-
 ## How it works
 
-The monitor reads usage data from:
-- **Claude Code:** `~/.claude/projects/` JSONL log files
-- **Claude Desktop:** Various local storage locations
+The monitor reads session data from Claude Code's local log files at `~/.claude/projects/` and counts the tokens used in your current session.
 
-Note: Claude Max/Pro subscription usage from claude.ai cannot be queried via API. Use the "Open claude.ai Usage" button to check it manually.
+**Note:** Weekly/monthly subscription usage from claude.ai cannot be accessed locally - only Anthropic's servers track this. Use the "Open claude.ai Usage" button to check your actual subscription usage.
 
 ## Requirements
 
