@@ -676,6 +676,8 @@ class SystemTrayApp:
         """Toggle the visibility of the usage widget."""
         if self.widget is None or not self.widget.winfo_exists():
             self.root.after(0, self.show_widget)
+        elif self.widget.state() == 'withdrawn':
+            self.root.after(0, self.show_widget)
         else:
             self.root.after(0, self.hide_widget)
 
