@@ -51,6 +51,9 @@ CLAUDE_DARK = "#1A1915"
 class UsageData:
     """Handles reading and parsing Claude Code and Desktop usage data."""
 
+    # Config file path for persistence
+    CONFIG_FILE = Path(__file__).parent / "usage_config.json"
+
     def __init__(self):
         self.code_session_tokens = 0
         self.code_weekly_tokens = 0
@@ -61,6 +64,35 @@ class UsageData:
         self.last_updated = None
         self.cost_estimate = 0.0
         self.sources_found = []
+        # Manual override for actual usage from claude.ai
+        self.manual_weekly_pct = None  # None = auto, 0-100 = manual
+        self._load_config()
+
+    def _load_config(self):
+        """Load saved configuration."""
+        try:
+            if self.CONFIG_FILE.exists():
+                with open(self.CONFIG_FILE, 'r') as f:
+                    config = json.load(f)
+                    self.manual_weekly_pct = config.get('manual_weekly_pct')
+        except Exception:
+            pass
+
+    def _save_config(self):
+        """Save configuration to file."""
+        try:
+            config = {
+                'manual_weekly_pct': self.manual_weekly_pct
+            }
+            with open(self.CONFIG_FILE, 'w') as f:
+                json.dump(config, f)
+        except Exception:
+            pass
+
+    def set_manual_pct(self, value):
+        """Set manual percentage and save to config."""
+        self.manual_weekly_pct = value
+        self._save_config()
 
     def find_claude_code_jsonl_files(self) -> List[Path]:
         """Find all JSONL log files from Claude Code."""
@@ -223,10 +255,8 @@ class UsageData:
         return total_tokens
 
     def get_usage_percentage(self) -> float:
-        """Get the higher of session or weekly usage percentage."""
-        session_pct = self.code_session_tokens / max(self.session_limit, 1)
-        weekly_pct = self.total_tokens / max(self.weekly_limit, 1)
-        return max(session_pct, weekly_pct)
+        """Get session usage percentage for tray icon."""
+        return self.code_session_tokens / max(self.session_limit, 1)
 
     def refresh(self):
         """Refresh all usage data."""
@@ -261,13 +291,15 @@ def create_claude_icon(size: int = 64, usage_pct: float = 0) -> Image.Image:
     center = size // 2
     radius = size // 2 - 4
 
-    # Determine color based on usage
-    if usage_pct < 0.5:
-        main_color = (224, 122, 78)  # Claude orange
-    elif usage_pct < 0.75:
-        main_color = (245, 158, 11)  # Amber
-    elif usage_pct < 0.9:
-        main_color = (249, 115, 22)  # Orange-Red
+    # Determine color based on usage - green to red gradient
+    if usage_pct < 0.3:
+        main_color = (34, 197, 94)   # Green
+    elif usage_pct < 0.5:
+        main_color = (132, 204, 22)  # Lime
+    elif usage_pct < 0.7:
+        main_color = (234, 179, 8)   # Yellow
+    elif usage_pct < 0.85:
+        main_color = (249, 115, 22)  # Orange
     else:
         main_color = (239, 68, 68)   # Red
 
@@ -399,8 +431,8 @@ class GlassWidget(tk.Toplevel):
         """Configure the floating window with glass effect."""
         global WINDOW_ICON_PATH
 
-        self.title("Claude Usage")
-        self.geometry("320x320")  # Increased height for button
+        self.title("Claude Session")
+        self.geometry("320x200")  # Compact size for session only
         self.resizable(False, False)
         self.attributes('-topmost', True)
         self.attributes('-alpha', 0.95)
@@ -426,7 +458,7 @@ class GlassWidget(tk.Toplevel):
         screen_width = self.winfo_screenwidth()
         screen_height = self.winfo_screenheight()
         x = screen_width - 340
-        y = screen_height - 400
+        y = screen_height - 280
         self.geometry(f"+{x}+{y}")
 
     def apply_glass_effect(self):
@@ -461,7 +493,7 @@ class GlassWidget(tk.Toplevel):
 
         subtitle_label = tk.Label(
             header_frame,
-            text=" Usage",
+            text=" Session Monitor",
             font=('Segoe UI', 16, 'normal'),
             fg=self.fg_color,
             bg=self.bg_color
@@ -470,17 +502,7 @@ class GlassWidget(tk.Toplevel):
 
         # Session usage section
         self.session_bar, self.session_glow, self.session_label = self.create_usage_section(
-            main_frame, "Session", "Current session"
-        )
-
-        # Weekly Code usage section
-        self.code_bar, self.code_glow, self.code_label = self.create_usage_section(
-            main_frame, "Code Weekly", "Claude Code this week"
-        )
-
-        # Weekly Total (Code + Desktop)
-        self.total_bar, self.total_glow, self.total_label = self.create_usage_section(
-            main_frame, "Total Weekly", "Code + Desktop combined"
+            main_frame, "Session", "Current session tokens"
         )
 
         # Bottom info section
@@ -560,28 +582,30 @@ class GlassWidget(tk.Toplevel):
         )
         value_label.pack(side='right')
 
-        # Glass-effect progress bar container
-        bar_container = tk.Frame(frame, bg=self.glass_bg, height=10)
+        # Glass-effect progress bar container - thicker for better visibility
+        bar_container = tk.Frame(frame, bg=self.glass_bg, height=18)
         bar_container.pack(fill='x', pady=(4, 0))
         bar_container.pack_propagate(False)
 
         # Glow effect layer
-        glow_bar = tk.Frame(bar_container, bg=self.glass_bg, height=10)
+        glow_bar = tk.Frame(bar_container, bg=self.glass_bg, height=18)
         glow_bar.place(x=0, y=0, relwidth=0, relheight=1)
 
         # Main progress bar
-        progress_bar = tk.Frame(bar_container, bg=self.accent, height=10)
+        progress_bar = tk.Frame(bar_container, bg=self.accent, height=18)
         progress_bar.place(x=0, y=0, relwidth=0, relheight=1)
 
         return progress_bar, glow_bar, value_label
 
     def get_color_for_percentage(self, pct: float) -> tuple:
-        """Get appropriate color based on usage percentage."""
-        if pct < 0.5:
-            return self.accent, "#3D2A22"  # Normal - Claude orange
-        elif pct < 0.75:
-            return "#F59E0B", "#3D3415"    # Warning - Amber
-        elif pct < 0.9:
+        """Get appropriate color based on usage percentage - green to red gradient."""
+        if pct < 0.3:
+            return "#22C55E", "#1A3D2A"    # Low - Green
+        elif pct < 0.5:
+            return "#84CC16", "#2A3D1A"    # Medium-Low - Lime
+        elif pct < 0.7:
+            return "#EAB308", "#3D3515"    # Medium - Yellow
+        elif pct < 0.85:
             return "#F97316", "#3D2815"    # High - Orange
         else:
             return "#EF4444", "#3D1515"    # Critical - Red
@@ -596,32 +620,30 @@ class GlassWidget(tk.Toplevel):
             return str(n)
 
         pct = min(tokens / max(limit, 1), 1.0)
+        pct_100 = pct * 100
+
+        # Format percentage display
+        if pct_100 == 0:
+            pct_display = "0%"
+        elif pct_100 < 1:
+            pct_display = "< 1%"
+        else:
+            pct_display = f"{int(pct_100)}%"
+
         color, glow_color = self.get_color_for_percentage(pct)
 
         bar.configure(bg=color)
         bar.place(relwidth=max(pct, 0.005))
         glow.configure(bg=glow_color)
         glow.place(relwidth=min(pct + 0.03, 1.0))
-        label.configure(text=format_tokens(tokens), fg=color)
+        label.configure(text=f"{format_tokens(tokens)} ({pct_display})", fg=color)
 
     def update_display(self):
         """Update the display with current usage data."""
-        # Session bar
+        # Session bar only
         self.update_bar(
             self.session_bar, self.session_glow, self.session_label,
             self.usage_data.code_session_tokens, self.usage_data.session_limit
-        )
-
-        # Code weekly bar
-        self.update_bar(
-            self.code_bar, self.code_glow, self.code_label,
-            self.usage_data.code_weekly_tokens, self.usage_data.weekly_limit
-        )
-
-        # Total weekly bar (Code + Desktop)
-        self.update_bar(
-            self.total_bar, self.total_glow, self.total_label,
-            self.usage_data.total_tokens, self.usage_data.weekly_limit
         )
 
         # Cost estimate
